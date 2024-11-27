@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Определение количества людей через веб-камеру</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+        #container {
+            position: relative;
+            margin: 20px;
+        }
+        #output {
+            margin: 20px;
+            padding: 20px;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        video {
+            display: none;
+        }
+        canvas {
+            border: 2px solid #333;
+            border-radius: 10px;
+        }
+        #status {
+            margin: 10px;
+            padding: 10px;
+            background-color: #fff;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Определение количества людей через веб-камеру</h1>
+    <button id="startButton">Включить камеру</button>
+    <p id="status">Нажмите "Включить камеру" для начала.</p>
+    <div id="container">
+        <video id="video" width="640" height="480" autoplay playsinline></video>
+        <canvas id="canvas" width="640" height="480"></canvas>
+    </div>
+    <div id="output">
+        <h2>Статистика:</h2>
+        <p>Дата и время: <span id="dateTime"></span></p>
+        <p>Количество людей в кадре: <span id="peopleCount">0</span></p>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('video');
+        const canvasElement = document.getElementById('canvas');
+        const statusElement = document.getElementById('status');
+        const startButton = document.getElementById('startButton');
+        const peopleCountElement = document.getElementById('peopleCount');
+        const dateTimeElement = document.getElementById('dateTime');
+        const ctx = canvasElement.getContext('2d');
+
+        async function setupCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480 }
+                });
+                videoElement.srcObject = stream;
+                await new Promise((resolve) => {
+                    videoElement.onloadedmetadata = () => resolve(videoElement);
+                });
+                statusElement.textContent = "Камера включена. Идет отслеживание...";
+                return videoElement;
+            } catch (error) {
+                console.error("Ошибка при доступе к камере:", error);
+                statusElement.textContent = `Ошибка при доступе к камере: ${error.message}`;
+            }
+        }
+
+        function updateDateTime() {
+            const now = new Date();
+            dateTimeElement.textContent = now.toLocaleString('ru-RU', {
+                dateStyle: 'full',
+                timeStyle: 'short'
+            });
+        }
+
+        function onResults(results) {
+            ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            ctx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.poseLandmarks) {
+                drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
+                drawLandmarks(ctx, results.poseLandmarks, { color: '#FF0000', lineWidth: 2 });
+
+                // Подсчет людей в кадре
+                const peopleCount = results.poseLandmarks.length / 33; // 33 - количество ключевых точек для одного человека
+                peopleCountElement.textContent = Math.floor(peopleCount);
+                updateDateTime(); // Обновление даты и времени
+            }
+        }
+
+        async function startPoseDetection() {
+            const pose = new Pose({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+                }
+            });
+
+            pose.setOptions({
+                modelComplexity: 1,
+                smoothLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            pose.onResults(onResults);
+
+            await setupCamera();
+
+            const camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await pose.send({ image: videoElement });
+                },
+                width: 640,
+                height: 480
+            });
+            
+            camera.start();
+        }
+
+        startButton.addEventListener('click', async () => {
+            startButton.style.display = 'none';
+            try {
+                await startPoseDetection();
+            } catch (error) {
+                console.error("Ошибка при запуске определения позы:", error);
+                statusElement.textContent = `Ошибка: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html>
